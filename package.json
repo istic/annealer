@@ -1,0 +1,33 @@
+{
+  "name": "@istic/annealer",
+  "version": "0.1.0",
+  "description": "Render Apple Icon Composer bundles and web favicons in plain Node.js — no Xcode required.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Aquarion",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/istic/annealer.git"
+  },
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "annealer": "bin/cli.js"
+  },
+  "files": [
+    "src",
+    "bin",
+    "action.yml"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}
