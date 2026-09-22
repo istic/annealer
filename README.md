@@ -44,7 +44,7 @@ project and not yet configurable — also tracked in the issue tracker.
 ### As a CLI
 
 ```sh
-npx @istic/annealer \
+npx @istic-co/annealer \
   --icon-path resources/branding/my-app.icon \
   --glyph resources/branding/glyph.svg \
   --background-color '#6A2AAC' \
@@ -54,7 +54,7 @@ npx @istic/annealer \
 ### As an npm package
 
 ```js
-import { generateAppleTouchIcon, generateWebIcons } from '@istic/annealer';
+import { generateAppleTouchIcon, generateWebIcons } from '@istic-co/annealer';
 
 const config = {
   iconPath: 'resources/branding/my-app.icon',
