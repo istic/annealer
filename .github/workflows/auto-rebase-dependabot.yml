@@ -1,0 +1,17 @@
+name: "[Auto] Rebase dependabot-updates onto main"
+
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  rebase:
+    uses: istic/shared-workflows/.github/workflows/auto-rebase-dependabot.yml@main
+    permissions:
+      contents: write
+      pull-requests: write
+    secrets:
+      REBASE_TOKEN: ${{ secrets.REBASE_TOKEN }}
