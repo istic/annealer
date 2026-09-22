@@ -1,5 +1,5 @@
 {
-  "name": "@istic/annealer",
+  "name": "@istic-co/annealer",
   "version": "0.1.0",
   "description": "Render Apple Icon Composer bundles and web favicons in plain Node.js — no Xcode required.",
   "type": "module",
