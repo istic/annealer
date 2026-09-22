@@ -1,0 +1,44 @@
+name: 'Annealer'
+description: 'Render Apple Icon Composer bundles and web favicons in plain Node.js — no Xcode required.'
+branding:
+  icon: 'image'
+  color: 'purple'
+inputs:
+  icon-path:
+    description: 'Path to the Apple Icon Composer (.icon) bundle. Required for the apple/all targets.'
+    required: false
+    default: ''
+  glyph:
+    description: 'Path to the glyph SVG used for web icon rendering. Required for the web/all targets.'
+    required: false
+    default: ''
+  background-color:
+    description: 'Background color as a hex string, e.g. #6A2AAC.'
+    required: true
+  output-dir:
+    description: 'Directory to write generated icons into.'
+    required: false
+    default: 'resources/icons'
+  target:
+    description: 'Which icons to generate: apple, web, or all.'
+    required: false
+    default: 'all'
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - name: Install Annealer's dependencies
+      shell: bash
+      run: npm ci --prefix "${{ github.action_path }}"
+    - name: Generate icons
+      shell: bash
+      run: |
+        node "${{ github.action_path }}/bin/cli.js" \
+          --icon-path "${{ inputs.icon-path }}" \
+          --glyph "${{ inputs.glyph }}" \
+          --background-color "${{ inputs.background-color }}" \
+          --output-dir "${{ inputs.output-dir }}" \
+          --target "${{ inputs.target }}"
