@@ -35,10 +35,17 @@ runs:
       run: npm ci --prefix "${{ github.action_path }}"
     - name: Generate icons
       shell: bash
+      env:
+        ANNEALER_ICON_PATH: ${{ inputs.icon-path }}
+        ANNEALER_GLYPH: ${{ inputs.glyph }}
+        ANNEALER_BACKGROUND_COLOR: ${{ inputs.background-color }}
+        ANNEALER_OUTPUT_DIR: ${{ inputs.output-dir }}
+        ANNEALER_TARGET: ${{ inputs.target }}
+        ANNEALER_ACTION_PATH: ${{ github.action_path }}
       run: |
-        node "${{ github.action_path }}/bin/cli.js" \
-          --icon-path "${{ inputs.icon-path }}" \
-          --glyph "${{ inputs.glyph }}" \
-          --background-color "${{ inputs.background-color }}" \
-          --output-dir "${{ inputs.output-dir }}" \
-          --target "${{ inputs.target }}"
+        node "$ANNEALER_ACTION_PATH/bin/cli.js" \
+          --icon-path="$ANNEALER_ICON_PATH" \
+          --glyph="$ANNEALER_GLYPH" \
+          --background-color="$ANNEALER_BACKGROUND_COLOR" \
+          --output-dir="$ANNEALER_OUTPUT_DIR" \
+          --target="$ANNEALER_TARGET"
