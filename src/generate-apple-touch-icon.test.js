@@ -131,6 +131,10 @@ describe('generateAppleTouchIcon', () => {
         ['an out-of-gamut component', 'display-p3:2.00000,0.00000,0.00000,1.00000'],
         ['trailing garbage after a valid-looking prefix', 'display-p3:0.50000,0.50000,0.50000,1.00000 extra'],
         ['a missing alpha component', 'display-p3:0.50000,0.50000,0.50000'],
+        // p3StringToAppleRgb() drops alpha and nothing here applies
+        // stop-opacity, so a non-opaque stop must be rejected rather than
+        // silently rendered fully opaque.
+        ['a non-opaque alpha component', 'display-p3:0.50000,0.50000,0.50000,0.50000'],
     ])('rejects a linear-gradient stop with %s instead of rendering it incorrectly', async (_label, malformedColor) => {
         outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
 
@@ -142,6 +146,27 @@ describe('generateAppleTouchIcon', () => {
             orientation: { start: { x: 0.5, y: 0 }, stop: { x: 0.5, y: 0.7 } },
         };
         await fs.writeFile(jsonPath, JSON.stringify(iconData, null, 2), 'utf-8');
+
+        await expect(generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir)).rejects.toThrow(/unsupported icon\.json fill/);
+    });
+
+    it('rejects a linear-gradient orientation with a non-finite coordinate instead of rendering it incorrectly', async () => {
+        outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
+
+        const jsonPath = path.join(iconDir, 'icon.json');
+        const iconData = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
+
+        iconData.fill = {
+            'linear-gradient': ['display-p3:0.10000,0.10000,0.10000,1.00000', 'display-p3:0.90000,0.90000,0.90000,1.00000'],
+            orientation: { start: { x: 0.5, y: 0 }, stop: { x: 0.5, y: '__INFINITY_SENTINEL__' } },
+        };
+        // JSON's `1e999` parses to Infinity (typeof still reports "number"),
+        // so the literal is spliced in by hand rather than via
+        // JSON.stringify, which would instead serialize Infinity as null.
+        const json = JSON.stringify(iconData, null, 2).replace('"__INFINITY_SENTINEL__"', '1e999');
+
+        await fs.writeFile(jsonPath, json, 'utf-8');
+        expect(JSON.parse(json).fill.orientation.stop.y).toBe(Infinity);
 
         await expect(generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir)).rejects.toThrow(/unsupported icon\.json fill/);
     });

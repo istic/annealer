@@ -14,13 +14,16 @@ const SIZE = 1024;
 const GRADIENT_LIFT = 40;
 
 function isOrientationPoint(point) {
-    return typeof point?.x === 'number' && typeof point?.y === 'number';
+    return Number.isFinite(point?.x) && Number.isFinite(point?.y);
 }
 
 // Matches the full "display-p3:R,G,B,A" string p3StringToAppleRgb() parses,
 // with each component required to be a 0-1 fraction — not just a numeric
 // prefix followed by anything, and not an out-of-gamut value that would
-// produce an invalid (e.g. >255) RGB channel downstream.
+// produce an invalid (e.g. >255) RGB channel downstream. Alpha must be
+// exactly 1: p3StringToAppleRgb() drops it and nothing in this renderer
+// applies stop-opacity, so a non-opaque stop would silently render fully
+// opaque instead of as authored.
 const DISPLAY_P3_PATTERN = /^display-p3:(-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)$/;
 
 function isDisplayP3Color(value) {
@@ -30,11 +33,13 @@ function isDisplayP3Color(value) {
 
     const match = value.match(DISPLAY_P3_PATTERN);
 
-    return Boolean(match) && match.slice(1).every((component) => {
-        const number = Number(component);
+    if (!match) {
+        return false;
+    }
 
-        return Number.isFinite(number) && number >= 0 && number <= 1;
-    });
+    const [r, g, b, a] = match.slice(1).map(Number);
+
+    return [r, g, b, a].every(Number.isFinite) && [r, g, b].every((n) => n >= 0 && n <= 1) && a === 1;
 }
 
 // A "linear-gradient" fill is an explicit, designer-authored gradient: 2+
