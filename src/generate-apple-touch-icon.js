@@ -13,23 +13,42 @@ const SIZE = 1024;
 // reaching the base color at ~70% of the height and staying flat below that.
 const GRADIENT_LIFT = 40;
 
-// Icon Composer also supports gradient fills with more than two stops, but
-// their icon.json shape isn't publicly documented and we don't want to guess
-// at it and render silently wrong output, so only these two kinds are
-// recognized; anything else throws instead of mis-rendering.
-const SUPPORTED_FILL_KINDS = ['automatic-gradient', 'flat-color'];
+function isOrientationPoint(point) {
+    return typeof point?.x === 'number' && typeof point?.y === 'number';
+}
+
+// A "linear-gradient" fill is an explicit, designer-authored gradient: 2+
+// Display P3 stop colors plus a fractional start/stop vector, e.g.
+// { "linear-gradient": ["display-p3:...", "display-p3:..."],
+//   "orientation": { "start": { "x": 0.5, "y": 0 }, "stop": { "x": 0.5, "y": 0.7 } } }
+// (confirmed against real Icon Composer output). It's the same primitive
+// "automatic-gradient" is built on — a single accent color auto-expanded
+// into a 2-stop gradient stopping at 70% height — just exposed directly.
+function isLinearGradientFill(fill) {
+    return (
+        Array.isArray(fill['linear-gradient']) &&
+        fill['linear-gradient'].length >= 2 &&
+        fill['linear-gradient'].every((color) => typeof color === 'string') &&
+        isOrientationPoint(fill.orientation?.start) &&
+        isOrientationPoint(fill.orientation?.stop)
+    );
+}
 
 function detectFillKind(fill) {
     const keys = Object.keys(fill || {});
 
-    if (keys.length !== 1 || !SUPPORTED_FILL_KINDS.includes(keys[0]) || typeof fill[keys[0]] !== 'string') {
-        throw new Error(
-            `generateAppleTouchIcon: unsupported icon.json fill ${JSON.stringify(fill)} — ` +
-            `only a single ${SUPPORTED_FILL_KINDS.map((kind) => `"${kind}"`).join(' or ')} color is supported (no multi-stop gradients).`,
-        );
+    if (keys.length === 1 && typeof fill[keys[0]] === 'string' && ['automatic-gradient', 'flat-color'].includes(keys[0])) {
+        return keys[0];
     }
 
-    return keys[0];
+    if (keys.length === 2 && keys.includes('linear-gradient') && keys.includes('orientation') && isLinearGradientFill(fill)) {
+        return 'linear-gradient';
+    }
+
+    throw new Error(
+        `generateAppleTouchIcon: unsupported icon.json fill ${JSON.stringify(fill)} — supported fills are a single ` +
+        '"automatic-gradient" or "flat-color" color, or a "linear-gradient" array of 2+ colors with a matching "orientation".',
+    );
 }
 
 async function fileExists(filePath) {
@@ -46,6 +65,13 @@ async function syncIconJsonFill(jsonPath, compensatedHex, write = true) {
     const iconData = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
     const fillKind = detectFillKind(iconData.fill);
 
+    if (fillKind === 'linear-gradient') {
+        // A linear-gradient's stops and orientation are authored directly in
+        // icon.json — there's no single configured background color to
+        // derive them from, so leave the bundle's own fill as-is.
+        return { iconData, fillKind };
+    }
+
     iconData.fill = { [fillKind]: hexToDisplayP3(compensatedHex) };
 
     if (write) {
@@ -55,6 +81,18 @@ async function syncIconJsonFill(jsonPath, compensatedHex, write = true) {
     return { iconData, fillKind };
 }
 
+function squircleMask() {
+    return Buffer.from(`
+        <svg width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
+            <path d="${generateSquirclePath(SIZE, 5)}" fill="white" />
+        </svg>
+    `);
+}
+
+function maskedSquircleLayer(contentSvg) {
+    return sharp(Buffer.from(contentSvg)).composite([{ input: squircleMask(), blend: 'dest-in' }]).png().toBuffer();
+}
+
 function backgroundLayer(rgb, fillKind) {
     const [r, g, b] = rgb;
     const baseColor = `rgb(${r}, ${g}, ${b})`;
@@ -62,13 +100,7 @@ function backgroundLayer(rgb, fillKind) {
         ? `rgb(${Math.min(255, r + GRADIENT_LIFT)}, ${Math.min(255, g + GRADIENT_LIFT)}, ${Math.min(255, b + GRADIENT_LIFT)})`
         : baseColor;
 
-    const squircleMask = Buffer.from(`
-        <svg width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
-            <path d="${generateSquirclePath(SIZE, 5)}" fill="white" />
-        </svg>
-    `);
-
-    const gradient = Buffer.from(`
+    return maskedSquircleLayer(`
         <svg width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
             <linearGradient id="grad" x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%" style="stop-color:${topColor}" />
@@ -78,8 +110,32 @@ function backgroundLayer(rgb, fillKind) {
             <rect width="${SIZE}" height="${SIZE}" fill="url(#grad)" />
         </svg>
     `);
+}
 
-    return sharp(gradient).composite([{ input: squircleMask, blend: 'dest-in' }]).png().toBuffer();
+// Stops are spaced evenly along the start->stop vector, matching SVG/CSS
+// gradients' own default when no explicit per-stop offsets are given —
+// icon.json's linear-gradient array carries colors only, no offsets.
+function linearGradientBackgroundLayer(stops, orientation) {
+    const stopMarkup = stops
+        .map(([r, g, b], index) => {
+            const offset = stops.length === 1 ? 0 : (index / (stops.length - 1)) * 100;
+
+            return `<stop offset="${offset}%" style="stop-color:rgb(${r}, ${g}, ${b})" />`;
+        })
+        .join('');
+
+    return maskedSquircleLayer(`
+        <svg width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
+            <linearGradient
+                id="grad"
+                x1="${orientation.start.x * 100}%" y1="${orientation.start.y * 100}%"
+                x2="${orientation.stop.x * 100}%" y2="${orientation.stop.y * 100}%"
+            >
+                ${stopMarkup}
+            </linearGradient>
+            <rect width="${SIZE}" height="${SIZE}" fill="url(#grad)" />
+        </svg>
+    `);
 }
 
 async function glyphLayer(iconDir, group, layer) {
@@ -194,9 +250,11 @@ export async function generateAppleTouchIcon(config, outputDir = DEFAULT_OUTPUT_
     const { iconData, fillKind } = await syncIconJsonFill(jsonPath, compensatedHex, syncJson);
     // Replicate Apple's icon tool quirk: P3 components are stored in the sRGB
     // container without gamut conversion, so we read them back the same way.
-    const rgb = p3StringToAppleRgb(iconData.fill[fillKind]);
+    const background = fillKind === 'linear-gradient'
+        ? await linearGradientBackgroundLayer(iconData.fill['linear-gradient'].map(p3StringToAppleRgb), iconData.fill.orientation)
+        : await backgroundLayer(p3StringToAppleRgb(iconData.fill[fillKind]), fillKind);
 
-    const composites = [{ input: await backgroundLayer(rgb, fillKind), top: 0, left: 0 }];
+    const composites = [{ input: background, top: 0, left: 0 }];
 
     for (const group of iconData.groups || []) {
         for (const layer of group.layers || []) {

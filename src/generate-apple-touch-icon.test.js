@@ -101,7 +101,7 @@ describe('generateAppleTouchIcon', () => {
         20000,
     );
 
-    it('rejects an unsupported (e.g. multi-stop) fill instead of rendering it incorrectly', async () => {
+    it('rejects a linear-gradient fill missing its orientation instead of rendering it incorrectly', async () => {
         outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
 
         const jsonPath = path.join(iconDir, 'icon.json');
@@ -114,6 +114,89 @@ describe('generateAppleTouchIcon', () => {
 
         await expect(generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir)).rejects.toThrow(/unsupported icon\.json fill/);
     });
+
+    it('rejects an unrecognized fill kind instead of rendering it incorrectly', async () => {
+        outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
+
+        const jsonPath = path.join(iconDir, 'icon.json');
+        const iconData = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
+
+        iconData.fill = { 'radial-gradient': 'display-p3:0.10000,0.10000,0.10000,1.00000' };
+        await fs.writeFile(jsonPath, JSON.stringify(iconData, null, 2), 'utf-8');
+
+        await expect(generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir)).rejects.toThrow(/unsupported icon\.json fill/);
+    });
+
+    it(
+        "renders a linear-gradient fill along its stops and orientation, and doesn't sync icon.json",
+        async () => {
+            outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
+
+            const jsonPath = path.join(iconDir, 'icon.json');
+            const iconData = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
+
+            // Real Icon Composer output (from a linear-gradient-filled .icon bundle).
+            iconData.fill = {
+                'linear-gradient': ['display-p3:0.03879,0.75538,0.85828,1.00000', 'display-p3:0.15702,0.55681,0.61389,1.00000'],
+                orientation: { start: { x: 0.5, y: 0 }, stop: { x: 0.5, y: 0.7 } },
+            };
+            const beforeJson = JSON.stringify(iconData, null, 2);
+            await fs.writeFile(jsonPath, beforeJson, 'utf-8');
+            // No glyph, so sampled pixels are pure background.
+            await fs.rm(path.join(iconDir, 'Assets', 'glyph.svg'));
+
+            await generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir);
+
+            expect(await fs.readFile(jsonPath, 'utf-8')).toBe(beforeJson);
+
+            const { data, info } = await sharp(path.join(outputDir, 'apple-touch-icon.png'))
+                .raw()
+                .toBuffer({ resolveWithObject: true });
+            const x = Math.floor(info.width / 2);
+            const topIndex = (20 * info.width + x) * info.channels;
+            // Past the 70%-height stop, where the gradient pads to its final color.
+            const bottomIndex = (1000 * info.width + x) * info.channels;
+            const closeTo = (actual, expected) => expected.every((value, i) => Math.abs(actual[i] - value) <= 20);
+
+            expect(closeTo([data[topIndex], data[topIndex + 1], data[topIndex + 2]], [10, 193, 219])).toBe(true);
+            expect(closeTo([data[bottomIndex], data[bottomIndex + 1], data[bottomIndex + 2]], [40, 142, 157])).toBe(true);
+        },
+        20000,
+    );
+
+    it(
+        'spaces a linear-gradient with more than two stops evenly along its orientation',
+        async () => {
+            outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
+
+            const jsonPath = path.join(iconDir, 'icon.json');
+            const iconData = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
+
+            iconData.fill = {
+                'linear-gradient': [
+                    'display-p3:1.00000,0.00000,0.00000,1.00000',
+                    'display-p3:0.00000,1.00000,0.00000,1.00000',
+                    'display-p3:0.00000,0.00000,1.00000,1.00000',
+                ],
+                orientation: { start: { x: 0, y: 0 }, stop: { x: 0, y: 1 } },
+            };
+            await fs.writeFile(jsonPath, JSON.stringify(iconData, null, 2), 'utf-8');
+            await fs.rm(path.join(iconDir, 'Assets', 'glyph.svg'));
+
+            await generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir);
+
+            const { data, info } = await sharp(path.join(outputDir, 'apple-touch-icon.png'))
+                .raw()
+                .toBuffer({ resolveWithObject: true });
+            const x = Math.floor(info.width / 2);
+            const midIndex = (Math.round(info.height / 2) * info.width + x) * info.channels;
+            const closeTo = (actual, expected) => expected.every((value, i) => Math.abs(actual[i] - value) <= 20);
+
+            // The middle stop should dominate at the gradient's midpoint.
+            expect(closeTo([data[midIndex], data[midIndex + 1], data[midIndex + 2]], [0, 255, 0])).toBe(true);
+        },
+        20000,
+    );
 
     it(
         'renders the second path of a multi-path glyph SVG instead of silently dropping it',
