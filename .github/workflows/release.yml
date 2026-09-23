@@ -6,7 +6,7 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -29,3 +29,9 @@ jobs:
         run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
 
       - run: npm publish --access public
+
+      - name: Move the major version tag (e.g. v1) to this release
+        run: |
+          major_tag="${GITHUB_REF_NAME%%.*}"
+          git tag -f "$major_tag" "$GITHUB_REF_NAME"
+          git push origin "$major_tag" --force
