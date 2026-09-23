@@ -52,4 +52,22 @@ describe('cli', () => {
             stderr: expect.stringContaining('background-color is required'),
         });
     });
+
+    it('exits non-zero instead of silently no-op-ing on an unrecognized target', async () => {
+        outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-cli-'));
+
+        await expect(
+            execFileAsync('node', [
+                CLI_PATH,
+                '--background-color', '#6A2AAC',
+                '--output-dir', outputDir,
+                '--target', 'bogus',
+            ]),
+        ).rejects.toMatchObject({
+            code: 1,
+            stderr: expect.stringContaining('--target must be one of'),
+        });
+
+        await expect(fs.readdir(outputDir)).resolves.toEqual([]);
+    });
 });

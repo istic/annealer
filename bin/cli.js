@@ -13,7 +13,13 @@ const { values } = parseArgs({
     },
 });
 
+const VALID_TARGETS = ['apple', 'web', 'all'];
+
 export async function main() {
+    if (!VALID_TARGETS.includes(values.target)) {
+        throw new Error(`--target must be one of ${VALID_TARGETS.join(', ')}, got "${values.target}"`);
+    }
+
     if (!values['background-color']) {
         throw new Error('--background-color is required');
     }
