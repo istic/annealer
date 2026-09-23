@@ -4,6 +4,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { compensateForAppleRender, hexToDisplayP3, p3StringToAppleRgb } from './colors.js';
 import { generateSquirclePath } from './squircle.js';
+import { extractGlyphMarkup } from './svg.js';
 
 const DEFAULT_OUTPUT_DIR = 'resources/icons';
 const SIZE = 1024;
@@ -11,6 +12,69 @@ const SIZE = 1024;
 // Apple's "automatic-gradient" lightens the top of the icon by ~40 RGB units,
 // reaching the base color at ~70% of the height and staying flat below that.
 const GRADIENT_LIFT = 40;
+
+function isOrientationPoint(point) {
+    return Number.isFinite(point?.x) && Number.isFinite(point?.y);
+}
+
+// Matches the full "display-p3:R,G,B,A" string p3StringToAppleRgb() parses,
+// with each component required to be a 0-1 fraction — not just a numeric
+// prefix followed by anything, and not an out-of-gamut value that would
+// produce an invalid (e.g. >255) RGB channel downstream. Alpha must be
+// exactly 1: p3StringToAppleRgb() drops it and nothing in this renderer
+// applies stop-opacity, so a non-opaque stop would silently render fully
+// opaque instead of as authored.
+const DISPLAY_P3_PATTERN = /^display-p3:(-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)$/;
+
+function isDisplayP3Color(value) {
+    if (typeof value !== 'string') {
+        return false;
+    }
+
+    const match = value.match(DISPLAY_P3_PATTERN);
+
+    if (!match) {
+        return false;
+    }
+
+    const [r, g, b, a] = match.slice(1).map(Number);
+
+    return [r, g, b, a].every(Number.isFinite) && [r, g, b].every((n) => n >= 0 && n <= 1) && a === 1;
+}
+
+// A "linear-gradient" fill is an explicit, designer-authored gradient: 2+
+// Display P3 stop colors plus a fractional start/stop vector, e.g.
+// { "linear-gradient": ["display-p3:...", "display-p3:..."],
+//   "orientation": { "start": { "x": 0.5, "y": 0 }, "stop": { "x": 0.5, "y": 0.7 } } }
+// (confirmed against real Icon Composer output). It's the same primitive
+// "automatic-gradient" is built on — a single accent color auto-expanded
+// into a 2-stop gradient stopping at 70% height — just exposed directly.
+function isLinearGradientFill(fill) {
+    return (
+        Array.isArray(fill['linear-gradient']) &&
+        fill['linear-gradient'].length >= 2 &&
+        fill['linear-gradient'].every(isDisplayP3Color) &&
+        isOrientationPoint(fill.orientation?.start) &&
+        isOrientationPoint(fill.orientation?.stop)
+    );
+}
+
+function detectFillKind(fill) {
+    const keys = Object.keys(fill || {});
+
+    if (keys.length === 1 && isDisplayP3Color(fill[keys[0]]) && ['automatic-gradient', 'flat-color'].includes(keys[0])) {
+        return keys[0];
+    }
+
+    if (keys.length === 2 && keys.includes('linear-gradient') && keys.includes('orientation') && isLinearGradientFill(fill)) {
+        return 'linear-gradient';
+    }
+
+    throw new Error(
+        `generateAppleTouchIcon: unsupported icon.json fill ${JSON.stringify(fill)} — supported fills are a single ` +
+        '"automatic-gradient" or "flat-color" color, or a "linear-gradient" array of 2+ colors with a matching "orientation".',
+    );
+}
 
 async function fileExists(filePath) {
     try {
@@ -22,30 +86,46 @@ async function fileExists(filePath) {
     }
 }
 
-async function syncIconJsonGradient(jsonPath, compensatedHex, write = true) {
+async function syncIconJsonFill(jsonPath, compensatedHex, write = true) {
     const iconData = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
+    const fillKind = detectFillKind(iconData.fill);
 
-    iconData.fill = { ...iconData.fill, 'automatic-gradient': hexToDisplayP3(compensatedHex) };
+    if (fillKind === 'linear-gradient') {
+        // A linear-gradient's stops and orientation are authored directly in
+        // icon.json — there's no single configured background color to
+        // derive them from, so leave the bundle's own fill as-is.
+        return { iconData, fillKind };
+    }
+
+    iconData.fill = { [fillKind]: hexToDisplayP3(compensatedHex) };
 
     if (write) {
         await fs.writeFile(jsonPath, `${JSON.stringify(iconData, null, 2)}\n`, 'utf-8');
     }
 
-    return iconData;
+    return { iconData, fillKind };
 }
 
-function backgroundLayer(rgb) {
-    const [r, g, b] = rgb;
-    const baseColor = `rgb(${r}, ${g}, ${b})`;
-    const topColor = `rgb(${Math.min(255, r + GRADIENT_LIFT)}, ${Math.min(255, g + GRADIENT_LIFT)}, ${Math.min(255, b + GRADIENT_LIFT)})`;
-
-    const squircleMask = Buffer.from(`
+function squircleMask() {
+    return Buffer.from(`
         <svg width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
             <path d="${generateSquirclePath(SIZE, 5)}" fill="white" />
         </svg>
     `);
+}
 
-    const gradient = Buffer.from(`
+function maskedSquircleLayer(contentSvg) {
+    return sharp(Buffer.from(contentSvg)).composite([{ input: squircleMask(), blend: 'dest-in' }]).png().toBuffer();
+}
+
+function backgroundLayer(rgb, fillKind) {
+    const [r, g, b] = rgb;
+    const baseColor = `rgb(${r}, ${g}, ${b})`;
+    const topColor = fillKind === 'automatic-gradient'
+        ? `rgb(${Math.min(255, r + GRADIENT_LIFT)}, ${Math.min(255, g + GRADIENT_LIFT)}, ${Math.min(255, b + GRADIENT_LIFT)})`
+        : baseColor;
+
+    return maskedSquircleLayer(`
         <svg width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
             <linearGradient id="grad" x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%" style="stop-color:${topColor}" />
@@ -55,8 +135,32 @@ function backgroundLayer(rgb) {
             <rect width="${SIZE}" height="${SIZE}" fill="url(#grad)" />
         </svg>
     `);
+}
 
-    return sharp(gradient).composite([{ input: squircleMask, blend: 'dest-in' }]).png().toBuffer();
+// Stops are spaced evenly along the start->stop vector, matching SVG/CSS
+// gradients' own default when no explicit per-stop offsets are given —
+// icon.json's linear-gradient array carries colors only, no offsets.
+function linearGradientBackgroundLayer(stops, orientation) {
+    const stopMarkup = stops
+        .map(([r, g, b], index) => {
+            const offset = stops.length === 1 ? 0 : (index / (stops.length - 1)) * 100;
+
+            return `<stop offset="${offset}%" style="stop-color:rgb(${r}, ${g}, ${b})" />`;
+        })
+        .join('');
+
+    return maskedSquircleLayer(`
+        <svg width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
+            <linearGradient
+                id="grad"
+                x1="${orientation.start.x * 100}%" y1="${orientation.start.y * 100}%"
+                x2="${orientation.stop.x * 100}%" y2="${orientation.stop.y * 100}%"
+            >
+                ${stopMarkup}
+            </linearGradient>
+            <rect width="${SIZE}" height="${SIZE}" fill="url(#grad)" />
+        </svg>
+    `);
 }
 
 async function glyphLayer(iconDir, group, layer) {
@@ -67,11 +171,7 @@ async function glyphLayer(iconDir, group, layer) {
     }
 
     const originalSvg = await fs.readFile(imagePath, 'utf-8');
-    const pathMatch = originalSvg.match(/<path d="([^"]+)"/);
-
-    if (!pathMatch) {
-        return null;
-    }
+    const glyphMarkup = extractGlyphMarkup(originalSvg);
 
     const scale = layer.position?.scale || 1.0;
     // Apple's icon JSON expresses scale as a "coverage" fraction; its renderer
@@ -105,8 +205,22 @@ async function glyphLayer(iconDir, group, layer) {
                         <feMergeNode in="specLight" />
                     </feMerge>
                 </filter>
+                <!-- mask-type="alpha" makes the mask follow the glyph shapes'
+                     coverage regardless of how many paths/groups it's made of
+                     or what fill colors they use, instead of the luminance-
+                     based masking SVG uses by default. -->
+                <mask id="glyphMask" maskUnits="userSpaceOnUse" x="0" y="0" width="1200" height="1200" mask-type="alpha">
+                    ${glyphMarkup}
+                </mask>
             </defs>
-            <path d="${pathMatch[1]}" fill="white" fill-opacity="${layerOpacity}" filter="url(#liquidGlass)" />
+            <!-- The filter must wrap the already-masked shape rather than sit
+                 on the rect itself: SVG filters run before masking, so a
+                 filter on the rect would see the full 1200x1200 rectangle's
+                 alpha instead of the glyph's, losing the glow/specular
+                 falloff at the glyph's actual edges. -->
+            <g filter="url(#liquidGlass)">
+                <rect x="0" y="0" width="1200" height="1200" fill="white" fill-opacity="${layerOpacity}" mask="url(#glyphMask)" />
+            </g>
         </svg>
     `;
 
@@ -165,12 +279,14 @@ export async function generateAppleTouchIcon(config, outputDir = DEFAULT_OUTPUT_
     const iconDir = config.iconPath;
     const jsonPath = path.join(iconDir, 'icon.json');
     const compensatedHex = compensateForAppleRender(config.backgroundColor);
-    const iconData = await syncIconJsonGradient(jsonPath, compensatedHex, syncJson);
+    const { iconData, fillKind } = await syncIconJsonFill(jsonPath, compensatedHex, syncJson);
     // Replicate Apple's icon tool quirk: P3 components are stored in the sRGB
     // container without gamut conversion, so we read them back the same way.
-    const rgb = p3StringToAppleRgb(iconData.fill['automatic-gradient']);
+    const background = fillKind === 'linear-gradient'
+        ? await linearGradientBackgroundLayer(iconData.fill['linear-gradient'].map(p3StringToAppleRgb), iconData.fill.orientation)
+        : await backgroundLayer(p3StringToAppleRgb(iconData.fill[fillKind]), fillKind);
 
-    const composites = [{ input: await backgroundLayer(rgb), top: 0, left: 0 }];
+    const composites = [{ input: background, top: 0, left: 0 }];
 
     for (const group of iconData.groups || []) {
         for (const layer of group.layers || []) {
