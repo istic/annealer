@@ -9,6 +9,17 @@ import { generateAppleTouchIcon } from './generate-apple-touch-icon.js';
 const FIXTURE_ICON_DIR = path.join(import.meta.dirname, 'test-fixtures', 'sample.icon');
 const CONFIG = { backgroundColor: '#6A2AAC' };
 
+// Mirrors glyphLayer()'s layerSize/layerOffset math for the fixture's
+// layer.position.scale (0.77), to translate a point in the glyph's
+// 0-1200 viewBox into a pixel coordinate on the final 1024x1024 canvas.
+function glyphViewBoxToCanvas(viewBoxCoord) {
+    const renderedScale = 0.77 ** 0.35;
+    const layerSize = Math.round(1024 * renderedScale);
+    const layerOffset = Math.round((1024 - layerSize) / 2);
+
+    return Math.round(layerOffset + (viewBoxCoord / 1200) * layerSize);
+}
+
 let outputDir;
 let iconDir;
 
@@ -105,77 +116,82 @@ describe('generateAppleTouchIcon', () => {
     });
 
     it(
-        'renders a glyph SVG with multiple paths instead of silently skipping it',
+        'renders the second path of a multi-path glyph SVG instead of silently dropping it',
         async () => {
             outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
 
             const glyphPath = path.join(iconDir, 'Assets', 'glyph.svg');
-            await fs.writeFile(
-                glyphPath,
-                `<?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
-  <path d="M600,200 A400,400 0 1,1 599,200 Z" fill="#FFFFFF"/>
-  <path d="M400,400 L800,400 L800,800 L400,800 Z" fill="#000000"/>
-</svg>`,
-                'utf-8',
-            );
+            const firstPath = '<path d="M600,200 A400,400 0 1,1 599,200 Z" fill="#FFFFFF"/>';
+            // Disjoint from the first path's circle (which spans viewBox x/y
+            // 200-1000), so this only shows up if the second path is rendered.
+            const secondPath = '<path d="M1050,1050 L1180,1050 L1180,1180 L1050,1180 Z" fill="#FFFFFF"/>';
+            const x = glyphViewBoxToCanvas(1115);
+            const y = glyphViewBoxToCanvas(1115);
 
+            await fs.writeFile(glyphPath, `<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">${firstPath}</svg>`, 'utf-8');
             await generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir);
 
-            const { data, info } = await sharp(path.join(outputDir, 'apple-touch-icon.png'))
+            const { data: onePathData, info } = await sharp(path.join(outputDir, 'apple-touch-icon.png'))
                 .raw()
                 .toBuffer({ resolveWithObject: true });
-            const cx = Math.floor(info.width / 2);
-            const cy = Math.floor(info.height / 2);
-            const centerIndex = (cy * info.width + cx) * info.channels;
+            const index = (y * info.width + x) * info.channels;
 
-            const bgIconDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-icon-nobg-'));
+            await fs.writeFile(
+                glyphPath,
+                `<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">${firstPath}${secondPath}</svg>`,
+                'utf-8',
+            );
+            await generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir);
 
-            await fs.cp(iconDir, bgIconDir, { recursive: true });
-            await fs.rm(path.join(bgIconDir, 'Assets', 'glyph.svg'));
-
-            const bgOutputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-nobg-'));
-
-            await generateAppleTouchIcon({ ...CONFIG, iconPath: bgIconDir }, bgOutputDir);
-
-            const { data: bgData } = await sharp(path.join(bgOutputDir, 'apple-touch-icon.png'))
+            const { data: twoPathData } = await sharp(path.join(outputDir, 'apple-touch-icon.png'))
                 .raw()
                 .toBuffer({ resolveWithObject: true });
 
-            expect([data[centerIndex], data[centerIndex + 1], data[centerIndex + 2]]).not.toEqual([
-                bgData[centerIndex],
-                bgData[centerIndex + 1],
-                bgData[centerIndex + 2],
+            expect([twoPathData[index], twoPathData[index + 1], twoPathData[index + 2]]).not.toEqual([
+                onePathData[index],
+                onePathData[index + 1],
+                onePathData[index + 2],
             ]);
-
-            await fs.rm(bgIconDir, { recursive: true, force: true });
-            await fs.rm(bgOutputDir, { recursive: true, force: true });
         },
         20000,
     );
 
     it(
-        'renders a glyph SVG with a nested group instead of silently skipping it',
+        "applies a nested group's transform instead of ignoring the wrapping <g>",
         async () => {
             outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
 
             const glyphPath = path.join(iconDir, 'Assets', 'glyph.svg');
-            await fs.writeFile(
-                glyphPath,
-                `<?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
-  <g>
-    <path d="M600,200 A400,400 0 1,1 599,200 Z" fill="#FFFFFF"/>
-  </g>
-</svg>`,
-                'utf-8',
-            );
+            const circlePath = '<path d="M600,200 A400,400 0 1,1 599,200 Z" fill="#FFFFFF"/>';
+            // Inside the untransformed circle (center 600,600 r400) but outside
+            // it once the group shifts the circle 300 to the right.
+            const x = glyphViewBoxToCanvas(300);
+            const y = glyphViewBoxToCanvas(600);
 
+            await fs.writeFile(glyphPath, `<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">${circlePath}</svg>`, 'utf-8');
             await generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir);
 
-            const { width, height, channels } = await sharp(path.join(outputDir, 'apple-touch-icon.png')).metadata();
+            const { data: untransformedData, info } = await sharp(path.join(outputDir, 'apple-touch-icon.png'))
+                .raw()
+                .toBuffer({ resolveWithObject: true });
+            const index = (y * info.width + x) * info.channels;
 
-            expect({ width, height, channels }).toEqual({ width: 1024, height: 1024, channels: 4 });
+            await fs.writeFile(
+                glyphPath,
+                `<svg viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg"><g transform="translate(300,0)">${circlePath}</g></svg>`,
+                'utf-8',
+            );
+            await generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir);
+
+            const { data: transformedData } = await sharp(path.join(outputDir, 'apple-touch-icon.png'))
+                .raw()
+                .toBuffer({ resolveWithObject: true });
+
+            expect([transformedData[index], transformedData[index + 1], transformedData[index + 2]]).not.toEqual([
+                untransformedData[index],
+                untransformedData[index + 1],
+                untransformedData[index + 2],
+            ]);
         },
         20000,
     );
