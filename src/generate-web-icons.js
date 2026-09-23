@@ -3,21 +3,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import { packIco } from './pack-ico.js';
+import { extractGlyphMarkup } from './svg.js';
 
 const DEFAULT_OUTPUT_DIR = 'resources/icons';
 const CANVAS_SIZE = 1200;
 const FAVICON_SIZES = [16, 32, 48, 64, 128, 256, 512];
 const WHITE = '#FFFFFF';
-
-function extractGlyphMarkup(svgMarkup) {
-    const match = svgMarkup.match(/<svg\b[^>]*>([\s\S]*)<\/svg>/i);
-
-    if (!match) {
-        throw new Error('extractGlyphMarkup: unable to parse glyph SVG');
-    }
-
-    return match[1].trim();
-}
 
 function buildCanvasSvg(glyphMarkup, backgroundColor) {
     return `<?xml version="1.0" encoding="UTF-8"?>

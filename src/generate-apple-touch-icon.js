@@ -4,6 +4,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { compensateForAppleRender, hexToDisplayP3, p3StringToAppleRgb } from './colors.js';
 import { generateSquirclePath } from './squircle.js';
+import { extractGlyphMarkup } from './svg.js';
 
 const DEFAULT_OUTPUT_DIR = 'resources/icons';
 const SIZE = 1024;
@@ -11,6 +12,25 @@ const SIZE = 1024;
 // Apple's "automatic-gradient" lightens the top of the icon by ~40 RGB units,
 // reaching the base color at ~70% of the height and staying flat below that.
 const GRADIENT_LIFT = 40;
+
+// Icon Composer also supports gradient fills with more than two stops, but
+// their icon.json shape isn't publicly documented and we don't want to guess
+// at it and render silently wrong output, so only these two kinds are
+// recognized; anything else throws instead of mis-rendering.
+const SUPPORTED_FILL_KINDS = ['automatic-gradient', 'flat-color'];
+
+function detectFillKind(fill) {
+    const keys = Object.keys(fill || {});
+
+    if (keys.length !== 1 || !SUPPORTED_FILL_KINDS.includes(keys[0]) || typeof fill[keys[0]] !== 'string') {
+        throw new Error(
+            `generateAppleTouchIcon: unsupported icon.json fill ${JSON.stringify(fill)} — ` +
+            `only a single ${SUPPORTED_FILL_KINDS.map((kind) => `"${kind}"`).join(' or ')} color is supported (no multi-stop gradients).`,
+        );
+    }
+
+    return keys[0];
+}
 
 async function fileExists(filePath) {
     try {
@@ -22,22 +42,25 @@ async function fileExists(filePath) {
     }
 }
 
-async function syncIconJsonGradient(jsonPath, compensatedHex, write = true) {
+async function syncIconJsonFill(jsonPath, compensatedHex, write = true) {
     const iconData = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
+    const fillKind = detectFillKind(iconData.fill);
 
-    iconData.fill = { ...iconData.fill, 'automatic-gradient': hexToDisplayP3(compensatedHex) };
+    iconData.fill = { [fillKind]: hexToDisplayP3(compensatedHex) };
 
     if (write) {
         await fs.writeFile(jsonPath, `${JSON.stringify(iconData, null, 2)}\n`, 'utf-8');
     }
 
-    return iconData;
+    return { iconData, fillKind };
 }
 
-function backgroundLayer(rgb) {
+function backgroundLayer(rgb, fillKind) {
     const [r, g, b] = rgb;
     const baseColor = `rgb(${r}, ${g}, ${b})`;
-    const topColor = `rgb(${Math.min(255, r + GRADIENT_LIFT)}, ${Math.min(255, g + GRADIENT_LIFT)}, ${Math.min(255, b + GRADIENT_LIFT)})`;
+    const topColor = fillKind === 'automatic-gradient'
+        ? `rgb(${Math.min(255, r + GRADIENT_LIFT)}, ${Math.min(255, g + GRADIENT_LIFT)}, ${Math.min(255, b + GRADIENT_LIFT)})`
+        : baseColor;
 
     const squircleMask = Buffer.from(`
         <svg width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
@@ -67,11 +90,7 @@ async function glyphLayer(iconDir, group, layer) {
     }
 
     const originalSvg = await fs.readFile(imagePath, 'utf-8');
-    const pathMatch = originalSvg.match(/<path d="([^"]+)"/);
-
-    if (!pathMatch) {
-        return null;
-    }
+    const glyphMarkup = extractGlyphMarkup(originalSvg);
 
     const scale = layer.position?.scale || 1.0;
     // Apple's icon JSON expresses scale as a "coverage" fraction; its renderer
@@ -105,8 +124,15 @@ async function glyphLayer(iconDir, group, layer) {
                         <feMergeNode in="specLight" />
                     </feMerge>
                 </filter>
+                <!-- mask-type="alpha" makes the mask follow the glyph shapes'
+                     coverage regardless of how many paths/groups it's made of
+                     or what fill colors they use, instead of the luminance-
+                     based masking SVG uses by default. -->
+                <mask id="glyphMask" maskUnits="userSpaceOnUse" x="0" y="0" width="1200" height="1200" mask-type="alpha">
+                    ${glyphMarkup}
+                </mask>
             </defs>
-            <path d="${pathMatch[1]}" fill="white" fill-opacity="${layerOpacity}" filter="url(#liquidGlass)" />
+            <rect x="0" y="0" width="1200" height="1200" fill="white" fill-opacity="${layerOpacity}" mask="url(#glyphMask)" filter="url(#liquidGlass)" />
         </svg>
     `;
 
@@ -165,12 +191,12 @@ export async function generateAppleTouchIcon(config, outputDir = DEFAULT_OUTPUT_
     const iconDir = config.iconPath;
     const jsonPath = path.join(iconDir, 'icon.json');
     const compensatedHex = compensateForAppleRender(config.backgroundColor);
-    const iconData = await syncIconJsonGradient(jsonPath, compensatedHex, syncJson);
+    const { iconData, fillKind } = await syncIconJsonFill(jsonPath, compensatedHex, syncJson);
     // Replicate Apple's icon tool quirk: P3 components are stored in the sRGB
     // container without gamut conversion, so we read them back the same way.
-    const rgb = p3StringToAppleRgb(iconData.fill['automatic-gradient']);
+    const rgb = p3StringToAppleRgb(iconData.fill[fillKind]);
 
-    const composites = [{ input: await backgroundLayer(rgb), top: 0, left: 0 }];
+    const composites = [{ input: await backgroundLayer(rgb, fillKind), top: 0, left: 0 }];
 
     for (const group of iconData.groups || []) {
         for (const layer of group.layers || []) {
