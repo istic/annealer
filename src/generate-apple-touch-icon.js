@@ -188,7 +188,14 @@ async function glyphLayer(iconDir, group, layer) {
                     ${glyphMarkup}
                 </mask>
             </defs>
-            <rect x="0" y="0" width="1200" height="1200" fill="white" fill-opacity="${layerOpacity}" mask="url(#glyphMask)" filter="url(#liquidGlass)" />
+            <!-- The filter must wrap the already-masked shape rather than sit
+                 on the rect itself: SVG filters run before masking, so a
+                 filter on the rect would see the full 1200x1200 rectangle's
+                 alpha instead of the glyph's, losing the glow/specular
+                 falloff at the glyph's actual edges. -->
+            <g filter="url(#liquidGlass)">
+                <rect x="0" y="0" width="1200" height="1200" fill="white" fill-opacity="${layerOpacity}" mask="url(#glyphMask)" />
+            </g>
         </svg>
     `;
 
