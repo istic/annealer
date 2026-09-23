@@ -17,6 +17,26 @@ function isOrientationPoint(point) {
     return typeof point?.x === 'number' && typeof point?.y === 'number';
 }
 
+// Matches the full "display-p3:R,G,B,A" string p3StringToAppleRgb() parses,
+// with each component required to be a 0-1 fraction — not just a numeric
+// prefix followed by anything, and not an out-of-gamut value that would
+// produce an invalid (e.g. >255) RGB channel downstream.
+const DISPLAY_P3_PATTERN = /^display-p3:(-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)$/;
+
+function isDisplayP3Color(value) {
+    if (typeof value !== 'string') {
+        return false;
+    }
+
+    const match = value.match(DISPLAY_P3_PATTERN);
+
+    return Boolean(match) && match.slice(1).every((component) => {
+        const number = Number(component);
+
+        return Number.isFinite(number) && number >= 0 && number <= 1;
+    });
+}
+
 // A "linear-gradient" fill is an explicit, designer-authored gradient: 2+
 // Display P3 stop colors plus a fractional start/stop vector, e.g.
 // { "linear-gradient": ["display-p3:...", "display-p3:..."],
@@ -28,7 +48,7 @@ function isLinearGradientFill(fill) {
     return (
         Array.isArray(fill['linear-gradient']) &&
         fill['linear-gradient'].length >= 2 &&
-        fill['linear-gradient'].every((color) => typeof color === 'string') &&
+        fill['linear-gradient'].every(isDisplayP3Color) &&
         isOrientationPoint(fill.orientation?.start) &&
         isOrientationPoint(fill.orientation?.stop)
     );
@@ -37,7 +57,7 @@ function isLinearGradientFill(fill) {
 function detectFillKind(fill) {
     const keys = Object.keys(fill || {});
 
-    if (keys.length === 1 && typeof fill[keys[0]] === 'string' && ['automatic-gradient', 'flat-color'].includes(keys[0])) {
+    if (keys.length === 1 && isDisplayP3Color(fill[keys[0]]) && ['automatic-gradient', 'flat-color'].includes(keys[0])) {
         return keys[0];
     }
 

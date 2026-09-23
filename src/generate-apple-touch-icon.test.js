@@ -127,6 +127,25 @@ describe('generateAppleTouchIcon', () => {
         await expect(generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir)).rejects.toThrow(/unsupported icon\.json fill/);
     });
 
+    it.each([
+        ['an out-of-gamut component', 'display-p3:2.00000,0.00000,0.00000,1.00000'],
+        ['trailing garbage after a valid-looking prefix', 'display-p3:0.50000,0.50000,0.50000,1.00000 extra'],
+        ['a missing alpha component', 'display-p3:0.50000,0.50000,0.50000'],
+    ])('rejects a linear-gradient stop with %s instead of rendering it incorrectly', async (_label, malformedColor) => {
+        outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
+
+        const jsonPath = path.join(iconDir, 'icon.json');
+        const iconData = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
+
+        iconData.fill = {
+            'linear-gradient': [malformedColor, 'display-p3:0.90000,0.90000,0.90000,1.00000'],
+            orientation: { start: { x: 0.5, y: 0 }, stop: { x: 0.5, y: 0.7 } },
+        };
+        await fs.writeFile(jsonPath, JSON.stringify(iconData, null, 2), 'utf-8');
+
+        await expect(generateAppleTouchIcon({ ...CONFIG, iconPath: iconDir }, outputDir)).rejects.toThrow(/unsupported icon\.json fill/);
+    });
+
     it(
         "renders a linear-gradient fill along its stops and orientation, and doesn't sync icon.json",
         async () => {
