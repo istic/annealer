@@ -13,14 +13,15 @@ and a GitHub Action.
 
 Annealer currently supports exactly one Icon Composer shape:
 
-- A single `fill['automatic-gradient']` value (no `flat-color` fill, no
-  multi-stop fills).
+- A single `fill['automatic-gradient']` or `fill['flat-color']` value, or a
+  `fill['linear-gradient']` array of 2+ Display P3 colors with a matching
+  `fill.orientation` (evenly spaced along the gradient). Any other fill
+  raises an error instead of being rendered.
 - Exactly one layer group, with `glass: true` on its layer (no
-  `glass: false` rendering path).
-- A glyph SVG with exactly one `<path d="...">` element (no multi-path or
-  multi-group glyphs).
+  `glass: false` rendering path). Icons outside this constraint will
+  render incorrectly rather than fail loudly.
+- A glyph SVG containing any combination of paths and groups.
 
-Icons outside this shape will render incorrectly rather than fail loudly.
 See the [issue tracker](https://github.com/istic/annealer/issues) for
 tracked gaps, and feel free to open a PR to extend support.
 
