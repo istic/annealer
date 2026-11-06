@@ -154,7 +154,7 @@ describe('generateAppleTouchIcon', () => {
         const jsonPath = path.join(iconDir, 'icon.json');
         const beforeJson = await fs.readFile(jsonPath, 'utf-8');
 
-        await expect(generateAppleTouchIcon({ backgroundColor: '#FFF', iconPath: iconDir }, outputDir)).rejects.toThrow(
+        await expect(generateAppleTouchIcon({ backgroundColor: '#GGG', iconPath: iconDir }, outputDir)).rejects.toThrow(
             'hexToAppleFill',
         );
         expect(await fs.readFile(jsonPath, 'utf-8')).toBe(beforeJson);

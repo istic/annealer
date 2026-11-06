@@ -1,3 +1,5 @@
+import Color from 'color';
+
 // D65 matrices, ported from regen-icons.sh's hex_to_display_p3 Python heredoc.
 const SRGB_TO_XYZ = [
     [0.4124564, 0.3575761, 0.1804375],
@@ -30,10 +32,19 @@ function srgbToLinear(channel) {
         : ((channel + 0.055) / 1.055) ** 2.4;
 }
 
-export function hexToRgb(hex) {
-    const raw = hex.replace('#', '');
+// Parsed with the `color` package, so #RGB, #RGBA, #RRGGBB and #RRGGBBAA all
+// work. Alpha is ignored: the Apple icon fill is always opaque. A bare hex
+// string without the leading # is still accepted.
+function parseColor(value) {
+    if (typeof value !== 'string') {
+        throw new Error(`Unable to parse colour from ${typeof value}`);
+    }
 
-    return [0, 2, 4].map((offset) => Number.parseInt(raw.slice(offset, offset + 2), 16));
+    return Color(/^[0-9a-f]{3,8}$/i.test(value) ? `#${value}` : value);
+}
+
+export function hexToRgb(hex) {
+    return parseColor(hex).rgb().array().slice(0, 3);
 }
 
 export function rgbToHex([r, g, b]) {
@@ -51,17 +62,22 @@ export function hexToDisplayP3(hex) {
 }
 
 /**
- * Builds the icon.json fill for a requested sRGB hex. Apple's renderer reads
- * the stored P3 components as plain sRGB channels (see p3StringToAppleRgb), so
- * storing hex/255 per channel makes the rendered background match the request.
+ * Builds the icon.json fill for a requested sRGB hex. Annealer reads the
+ * stored P3 components as plain sRGB channels (the Apple icon tool quirk in
+ * p3StringToAppleRgb), so storing hex/255 per channel makes the background
+ * rendered by this package match the request.
  * Unlike compensateForAppleRender, it carries no per-channel constants.
  */
 export function hexToAppleFill(hex) {
-    if (!/^#?[0-9a-f]{6}$/i.test(hex)) {
-        throw new Error(`hexToAppleFill: expected a 6-digit hex colour like "#1A5C2A", got "${hex}"`);
+    let rgb;
+
+    try {
+        rgb = hexToRgb(hex);
+    } catch (error) {
+        throw new Error(`hexToAppleFill: expected a hex colour like "#1A5C2A", got "${hex}"`, { cause: error });
     }
 
-    const components = hexToRgb(hex).map((channel) => (channel / 255).toFixed(5));
+    const components = rgb.map((channel) => (channel / 255).toFixed(5));
 
     return `display-p3:${components.join(',')},1.00000`;
 }
