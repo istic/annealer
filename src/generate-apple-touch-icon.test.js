@@ -53,7 +53,7 @@ describe('generateAppleTouchIcon', () => {
     );
 
     it(
-        "syncs icon.json's automatic-gradient to the compensated brand color",
+        "syncs icon.json's automatic-gradient to the requested background color",
         async () => {
             outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
 
@@ -85,12 +85,80 @@ describe('generateAppleTouchIcon', () => {
                 .toBuffer({ resolveWithObject: true });
             const index = (Math.floor(info.height / 2) * info.width + Math.floor(info.width / 2)) * info.channels;
 
-            [26, 92, 42].forEach((expected, channel) => {
-                expect(Math.abs(data[index + channel] - expected)).toBeLessThanOrEqual(12);
+            // The requested #1A5C2A (26,92,42) plus the ~10 per channel the
+            // edge glow and specular overlays add at the canvas centre.
+            [36, 99, 52].forEach((expected, channel) => {
+                expect(Math.abs(data[index + channel] - expected)).toBeLessThanOrEqual(3);
             });
         },
         20000,
     );
+
+    it(
+        'renders the automatic-gradient at the requested colour below the lift, lighter at the top',
+        async () => {
+            outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
+            await fs.rm(path.join(iconDir, 'Assets', 'glyph.svg'));
+
+            await generateAppleTouchIcon({ backgroundColor: '#1A5C2A', iconPath: iconDir }, outputDir);
+
+            const { data, info } = await sharp(path.join(outputDir, 'apple-touch-icon.png'))
+                .raw()
+                .toBuffer({ resolveWithObject: true });
+            const x = Math.floor(info.width / 2);
+            const pixelAt = (y) => [0, 1, 2].map((channel) => data[(y * info.width + x) * info.channels + channel]);
+            const top = pixelAt(20);
+            const base = pixelAt(850);
+
+            [36, 99, 52].forEach((expected, channel) => {
+                expect(Math.abs(base[channel] - expected)).toBeLessThanOrEqual(3);
+                expect(top[channel] - base[channel]).toBeGreaterThanOrEqual(30);
+            });
+        },
+        20000,
+    );
+
+    it(
+        'with syncJson false leaves icon.json untouched but still renders the configured colour',
+        async () => {
+            outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
+
+            const jsonPath = path.join(iconDir, 'icon.json');
+            const beforeJson = await fs.readFile(jsonPath, 'utf-8');
+            const iconData = JSON.parse(beforeJson);
+
+            iconData.fill = { 'flat-color': iconData.fill['automatic-gradient'] };
+            const flatJson = JSON.stringify(iconData, null, 2);
+            await fs.writeFile(jsonPath, flatJson, 'utf-8');
+            await fs.rm(path.join(iconDir, 'Assets', 'glyph.svg'));
+
+            await generateAppleTouchIcon({ backgroundColor: '#1A5C2A', iconPath: iconDir }, outputDir, { syncJson: false });
+
+            expect(await fs.readFile(jsonPath, 'utf-8')).toBe(flatJson);
+
+            const { data, info } = await sharp(path.join(outputDir, 'apple-touch-icon.png'))
+                .raw()
+                .toBuffer({ resolveWithObject: true });
+            const index = (Math.floor(info.height / 2) * info.width + Math.floor(info.width / 2)) * info.channels;
+
+            [36, 99, 52].forEach((expected, channel) => {
+                expect(Math.abs(data[index + channel] - expected)).toBeLessThanOrEqual(3);
+            });
+        },
+        20000,
+    );
+
+    it('rejects an invalid backgroundColor before touching icon.json', async () => {
+        outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
+
+        const jsonPath = path.join(iconDir, 'icon.json');
+        const beforeJson = await fs.readFile(jsonPath, 'utf-8');
+
+        await expect(generateAppleTouchIcon({ backgroundColor: '#FFF', iconPath: iconDir }, outputDir)).rejects.toThrow(
+            'hexToAppleFill',
+        );
+        expect(await fs.readFile(jsonPath, 'utf-8')).toBe(beforeJson);
+    });
 
     it(
         'syncs a flat-color fill without introducing an automatic-gradient key, and renders it flat',

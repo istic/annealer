@@ -11,8 +11,9 @@ const XYZ_TO_P3 = [
     [0.0358458, -0.0761724, 0.9568845],
 ];
 
-// Empirical per-channel darkening observed in apple-touch-icon output vs the
-// requested background color, ported from regen-icons.sh's DARKEN constant.
+// Per-channel factors fitted empirically to one colour (#6A2AAC), ported from
+// regen-icons.sh's DARKEN constant. Only the deprecated
+// compensateForAppleRender uses them; they distort other colours.
 const APPLE_RENDER_DARKEN = [
     0.6022727272727273, 0.4375, 0.7962962962962963,
 ];
@@ -56,6 +57,10 @@ export function hexToDisplayP3(hex) {
  * Unlike compensateForAppleRender, it carries no per-channel constants.
  */
 export function hexToAppleFill(hex) {
+    if (!/^#?[0-9a-f]{6}$/i.test(hex)) {
+        throw new Error(`hexToAppleFill: expected a 6-digit hex colour like "#1A5C2A", got "${hex}"`);
+    }
+
     const components = hexToRgb(hex).map((channel) => (channel / 255).toFixed(5));
 
     return `display-p3:${components.join(',')},1.00000`;

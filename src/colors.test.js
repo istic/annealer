@@ -45,7 +45,11 @@ describe('hexToAppleFill', () => {
         expect(p3StringToAppleRgb(hexToAppleFill('#1A5C2A'))).toEqual([26, 92, 42]);
     });
 
-    it.each(['#6A2AAC', '#1A5C2A', '#C2410C', '#000000', '#FFFFFF'])('round-trips %s exactly', (hex) => {
+    it.each(['#6A2AAC', '#1A5C2A', '#1a5c2a', '1A5C2A', '#C2410C', '#000000', '#FFFFFF'])('round-trips %s exactly', (hex) => {
         expect(p3StringToAppleRgb(hexToAppleFill(hex))).toEqual(hexToRgb(hex));
+    });
+
+    it.each(['#FFF', '#GGGGGG', '', '#1A5C2AFF', undefined])('rejects %s rather than emitting NaN', (hex) => {
+        expect(() => hexToAppleFill(hex)).toThrow('hexToAppleFill');
     });
 });
