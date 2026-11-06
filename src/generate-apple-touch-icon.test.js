@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { compensateForAppleRender, hexToDisplayP3 } from './colors.js';
+import { hexToAppleFill } from './colors.js';
 import { generateAppleTouchIcon } from './generate-apple-touch-icon.js';
 
 const FIXTURE_ICON_DIR = path.join(import.meta.dirname, 'test-fixtures', 'sample.icon');
@@ -61,7 +61,33 @@ describe('generateAppleTouchIcon', () => {
 
             const iconData = JSON.parse(await fs.readFile(path.join(iconDir, 'icon.json'), 'utf-8'));
 
-            expect(iconData.fill['automatic-gradient']).toBe(hexToDisplayP3(compensateForAppleRender(CONFIG.backgroundColor)));
+            expect(iconData.fill['automatic-gradient']).toBe(hexToAppleFill(CONFIG.backgroundColor));
+        },
+        20000,
+    );
+
+    it(
+        'renders a flat-color background at the requested colour rather than a brightened one',
+        async () => {
+            outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-apple-icon-'));
+
+            const jsonPath = path.join(iconDir, 'icon.json');
+            const iconData = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
+
+            iconData.fill = { 'flat-color': iconData.fill['automatic-gradient'] };
+            await fs.writeFile(jsonPath, JSON.stringify(iconData, null, 2), 'utf-8');
+            await fs.rm(path.join(iconDir, 'Assets', 'glyph.svg'));
+
+            await generateAppleTouchIcon({ backgroundColor: '#1A5C2A', iconPath: iconDir }, outputDir);
+
+            const { data, info } = await sharp(path.join(outputDir, 'apple-touch-icon.png'))
+                .raw()
+                .toBuffer({ resolveWithObject: true });
+            const index = (Math.floor(info.height / 2) * info.width + Math.floor(info.width / 2)) * info.channels;
+
+            [26, 92, 42].forEach((expected, channel) => {
+                expect(Math.abs(data[index + channel] - expected)).toBeLessThanOrEqual(12);
+            });
         },
         20000,
     );
@@ -82,7 +108,7 @@ describe('generateAppleTouchIcon', () => {
             const syncedIconData = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
 
             expect(syncedIconData.fill).toEqual({
-                'flat-color': hexToDisplayP3(compensateForAppleRender(CONFIG.backgroundColor)),
+                'flat-color': hexToAppleFill(CONFIG.backgroundColor),
             });
 
             const { data, info } = await sharp(path.join(outputDir, 'apple-touch-icon.png'))

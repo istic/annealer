@@ -49,6 +49,22 @@ export function hexToDisplayP3(hex) {
     return `display-p3:${p3.map((channel) => channel.toFixed(5)).join(',')},1.00000`;
 }
 
+/**
+ * Builds the icon.json fill for a requested sRGB hex. Apple's renderer reads
+ * the stored P3 components as plain sRGB channels (see p3StringToAppleRgb), so
+ * storing hex/255 per channel makes the rendered background match the request.
+ * Unlike compensateForAppleRender, it carries no per-channel constants.
+ */
+export function hexToAppleFill(hex) {
+    const components = hexToRgb(hex).map((channel) => (channel / 255).toFixed(5));
+
+    return `display-p3:${components.join(',')},1.00000`;
+}
+
+/**
+ * @deprecated The per-channel factors were fitted to one colour (#6A2AAC) and
+ * distort others; use hexToAppleFill. Kept for API compatibility.
+ */
 export function compensateForAppleRender(hex) {
     const compensated = hexToRgb(hex).map((channel, index) =>
         Math.min(255, Math.max(0, Math.round(channel / APPLE_RENDER_DARKEN[index]))),
