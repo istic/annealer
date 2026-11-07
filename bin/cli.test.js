@@ -3,16 +3,24 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const execFileAsync = promisify(execFile);
 const CLI_PATH = path.join(import.meta.dirname, 'cli.js');
-const FIXTURE_ICON_DIR = path.join(import.meta.dirname, '..', 'src', 'test-fixtures', 'sample.icon');
+const SOURCE_FIXTURE_ICON_DIR = path.join(import.meta.dirname, '..', 'src', 'test-fixtures', 'sample.icon');
 const FIXTURE_GLYPH = path.join(import.meta.dirname, '..', 'src', 'test-fixtures', 'glyph.svg');
 
 let outputDir;
+let FIXTURE_ICON_DIR;
+
+beforeEach(async () => {
+    FIXTURE_ICON_DIR = await fs.mkdtemp(path.join(os.tmpdir(), 'annealer-cli-icon-'));
+    await fs.cp(SOURCE_FIXTURE_ICON_DIR, FIXTURE_ICON_DIR, { recursive: true });
+});
 
 afterEach(async () => {
+    await fs.rm(FIXTURE_ICON_DIR, { recursive: true, force: true });
+
     if (outputDir) {
         await fs.rm(outputDir, { recursive: true, force: true });
         outputDir = undefined;

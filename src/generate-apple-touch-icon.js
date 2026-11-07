@@ -2,7 +2,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
-import { compensateForAppleRender, hexToDisplayP3, p3StringToAppleRgb } from './colors.js';
+import { hexToAppleFill, p3StringToAppleRgb } from './colors.js';
 import { generateSquirclePath } from './squircle.js';
 import { extractGlyphMarkup } from './svg.js';
 
@@ -86,7 +86,7 @@ async function fileExists(filePath) {
     }
 }
 
-async function syncIconJsonFill(jsonPath, compensatedHex, write = true) {
+async function syncIconJsonFill(jsonPath, backgroundColor, write = true) {
     const iconData = JSON.parse(await fs.readFile(jsonPath, 'utf-8'));
     const fillKind = detectFillKind(iconData.fill);
 
@@ -97,7 +97,7 @@ async function syncIconJsonFill(jsonPath, compensatedHex, write = true) {
         return { iconData, fillKind };
     }
 
-    iconData.fill = { [fillKind]: hexToDisplayP3(compensatedHex) };
+    iconData.fill = { [fillKind]: hexToAppleFill(backgroundColor) };
 
     if (write) {
         await fs.writeFile(jsonPath, `${JSON.stringify(iconData, null, 2)}\n`, 'utf-8');
@@ -278,8 +278,7 @@ async function cornerSpecularLayer() {
 export async function generateAppleTouchIcon(config, outputDir = DEFAULT_OUTPUT_DIR, { syncJson = true } = {}) {
     const iconDir = config.iconPath;
     const jsonPath = path.join(iconDir, 'icon.json');
-    const compensatedHex = compensateForAppleRender(config.backgroundColor);
-    const { iconData, fillKind } = await syncIconJsonFill(jsonPath, compensatedHex, syncJson);
+    const { iconData, fillKind } = await syncIconJsonFill(jsonPath, config.backgroundColor, syncJson);
     // Replicate Apple's icon tool quirk: P3 components are stored in the sRGB
     // container without gamut conversion, so we read them back the same way.
     const background = fillKind === 'linear-gradient'
