@@ -25,9 +25,15 @@ Annealer currently supports exactly one Icon Composer shape:
 See the [issue tracker](https://github.com/istic/annealer/issues) for
 tracked gaps, and feel free to open a PR to extend support.
 
-The web-icon filenames (`bloom-standard.svg`, `bloom-standard.png`,
-`bloom-on-white.png`) are currently hardcoded from Annealer's origin
-project and not yet configurable — also tracked in the issue tracker.
+The web-icon filenames (`icon-standard.svg`, `icon-standard.png`,
+`icon-on-white.png`) are currently hardcoded and not yet configurable —
+also tracked in the issue tracker.
+
+`generateWebIcons` draws the background as a square by default. Pass
+`shape: 'circle'` in the config for a circular background with transparent
+corners (the `icon-on-white.png` variant always keeps its white square).
+The CLI has no flag for this yet. Apple touch icons are unaffected, since
+iOS applies its own mask.
 
 ## Usage
 
