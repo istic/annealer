@@ -31,8 +31,8 @@ describe('generateWebIcons', () => {
 
         const expectations = {
             'favicon-96x96.png': { width: 96, height: 96 },
-            'bloom-standard.png': { width: 1200, height: 1200 },
-            'bloom-on-white.png': { width: 1200, height: 1200 },
+            'icon-standard.png': { width: 1200, height: 1200 },
+            'icon-on-white.png': { width: 1200, height: 1200 },
             'web-app-manifest-192x192.png': { width: 192, height: 192 },
             'web-app-manifest-512x512.png': { width: 512, height: 512 },
         };
@@ -50,7 +50,7 @@ describe('generateWebIcons', () => {
         await generateWebIcons(CONFIG, dir);
 
         const favicon = await fs.readFile(path.join(dir, 'favicon.svg'), 'utf-8');
-        const standard = await fs.readFile(path.join(dir, 'bloom-standard.svg'), 'utf-8');
+        const standard = await fs.readFile(path.join(dir, 'icon-standard.svg'), 'utf-8');
 
         expect(favicon).toBe(standard);
         expect(favicon).toContain('fill="#6A2AAC"');
@@ -85,10 +85,42 @@ describe('generateWebIcons', () => {
 
         await generateWebIcons(CONFIG, dir);
 
-        const { data } = await sharp(path.join(dir, 'bloom-on-white.png'))
+        const { data } = await sharp(path.join(dir, 'icon-on-white.png'))
             .raw()
             .toBuffer({ resolveWithObject: true });
 
         expect([data[0], data[1], data[2]]).toEqual([0xff, 0xff, 0xff]);
+    });
+
+    it('draws a circular background with transparent corners when shape is "circle"', async () => {
+        const dir = await freshOutputDir();
+
+        await generateWebIcons({ ...CONFIG, shape: 'circle' }, dir);
+
+        const favicon = await fs.readFile(path.join(dir, 'favicon.svg'), 'utf-8');
+        const { data, info } = await sharp(path.join(dir, 'favicon-96x96.png'))
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+        const pixel = (x, y) => Array.from(data.subarray((y * info.width + x) * info.channels, (y * info.width + x + 1) * info.channels));
+
+        expect(favicon).toContain('<circle cx="600" cy="600" r="600" fill="#6A2AAC"/>');
+        expect(favicon).not.toContain('<rect');
+        // Corner is outside the circle; the left edge midpoint is inside it.
+        expect(pixel(0, 0)[3]).toBe(0);
+        expect(pixel(2, 48).slice(0, 3)).toEqual([0x6a, 0x2a, 0xac]);
+    });
+
+    it('keeps the square background by default', async () => {
+        const dir = await freshOutputDir();
+
+        await generateWebIcons(CONFIG, dir);
+
+        expect(await fs.readFile(path.join(dir, 'favicon.svg'), 'utf-8')).toContain('<rect');
+    });
+
+    it('rejects an unknown shape', async () => {
+        const dir = await freshOutputDir();
+
+        await expect(generateWebIcons({ ...CONFIG, shape: 'hexagon' }, dir)).rejects.toThrow(/shape must be one of/);
     });
 });
