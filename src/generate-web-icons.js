@@ -59,10 +59,10 @@ export async function generateWebIcons(config, outputDir = DEFAULT_OUTPUT_DIR) {
 
     await Promise.all([
         writeOutput(outputDir, 'favicon.svg', standardSvg),
-        writeOutput(outputDir, 'bloom-standard.svg', standardSvg),
+        writeOutput(outputDir, 'icon-standard.svg', standardSvg),
         writeOutput(outputDir, 'favicon.ico', packIco(faviconFrames)),
         renderPng(standardBuffer, 96).then((png) => writeOutput(outputDir, 'favicon-96x96.png', png)),
-        renderPng(standardBuffer, 1200).then((png) => writeOutput(outputDir, 'bloom-standard.png', png)),
+        renderPng(standardBuffer, 1200).then((png) => writeOutput(outputDir, 'icon-standard.png', png)),
         renderPng(onWhiteBuffer, 1200).then((png) => writeOutput(outputDir, 'icon-on-white.png', png)),
         renderPng(standardBuffer, 192).then((png) => writeOutput(outputDir, 'web-app-manifest-192x192.png', png)),
         renderPng(standardBuffer, 512).then((png) => writeOutput(outputDir, 'web-app-manifest-512x512.png', png)),
