@@ -10,10 +10,22 @@ const CANVAS_SIZE = 1200;
 const FAVICON_SIZES = [16, 32, 48, 64, 128, 256, 512];
 const WHITE = '#FFFFFF';
 
-function buildCanvasSvg(glyphMarkup, backgroundColor) {
+const SHAPES = ['square', 'circle'];
+
+function buildBackground(backgroundColor, shape) {
+    if (shape === 'circle') {
+        const radius = CANVAS_SIZE / 2;
+
+        return `<circle cx="${radius}" cy="${radius}" r="${radius}" fill="${backgroundColor}"/>`;
+    }
+
+    return `<rect x="0" y="0" width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" fill="${backgroundColor}"/>`;
+}
+
+function buildCanvasSvg(glyphMarkup, backgroundColor, shape = 'square') {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg viewBox="0 0 ${CANVAS_SIZE} ${CANVAS_SIZE}" xmlns="http://www.w3.org/2000/svg">
-  <rect x="0" y="0" width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" fill="${backgroundColor}"/>
+  ${buildBackground(backgroundColor, shape)}
   ${glyphMarkup}
 </svg>`;
 }
@@ -27,10 +39,16 @@ async function renderPng(svgBuffer, size) {
 }
 
 export async function generateWebIcons(config, outputDir = DEFAULT_OUTPUT_DIR) {
+    const shape = config.shape ?? 'square';
+
+    if (!SHAPES.includes(shape)) {
+        throw new Error(`shape must be one of ${SHAPES.join(', ')}, got "${shape}"`);
+    }
+
     const glyphSource = await fs.readFile(config.glyph, 'utf-8');
     const glyphMarkup = extractGlyphMarkup(glyphSource);
 
-    const standardSvg = buildCanvasSvg(glyphMarkup, config.backgroundColor);
+    const standardSvg = buildCanvasSvg(glyphMarkup, config.backgroundColor, shape);
     const onWhiteSvg = buildCanvasSvg(glyphMarkup, WHITE);
     const standardBuffer = Buffer.from(standardSvg);
     const onWhiteBuffer = Buffer.from(onWhiteSvg);
@@ -45,7 +63,7 @@ export async function generateWebIcons(config, outputDir = DEFAULT_OUTPUT_DIR) {
         writeOutput(outputDir, 'favicon.ico', packIco(faviconFrames)),
         renderPng(standardBuffer, 96).then((png) => writeOutput(outputDir, 'favicon-96x96.png', png)),
         renderPng(standardBuffer, 1200).then((png) => writeOutput(outputDir, 'bloom-standard.png', png)),
-        renderPng(onWhiteBuffer, 1200).then((png) => writeOutput(outputDir, 'bloom-on-white.png', png)),
+        renderPng(onWhiteBuffer, 1200).then((png) => writeOutput(outputDir, 'icon-on-white.png', png)),
         renderPng(standardBuffer, 192).then((png) => writeOutput(outputDir, 'web-app-manifest-192x192.png', png)),
         renderPng(standardBuffer, 512).then((png) => writeOutput(outputDir, 'web-app-manifest-512x512.png', png)),
     ]);
